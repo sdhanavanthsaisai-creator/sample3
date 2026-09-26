@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC 1-on-1 Video Call App & Free Setup Guide</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdf4',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                        },
+                        dark: {
+                            800: '#1f2937',
+                            900: '#111827',
+                            950: '#030712'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PeerJS Client Library -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        /* Custom video container styles */
+        .video-overlay-shadow {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+        }
+        /* Pulse animation for active call indicator */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 0.4; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .pulse-live {
+            animation: pulse-ring 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-dark-950 text-slate-100 font-sans min-h-screen flex flex-col antialiased">
+
+    <header class="border-b border-slate-800 bg-dark-900/80 backdrop-blur sticky top-0 z-50 px-4 py-3">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/10">
+                    <i class="fa-solid fa-video text-white text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight text-white">PeerConnect WebRTC</h1>
+                    <p class="text-xs text-slate-400">Serverless 1-on-1 Free Video Calling</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <span id="global-status-badge" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                    Initializing PeerJS...
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- LEFT COLUMN: Live WebRTC App Demo (7 Cols) -->
+        <section class="lg:col-span-7 flex flex-col gap-4">
+            
+            <!-- Connection Setup Bar -->
+            <div class="bg-dark-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    
+                    <!-- My Peer ID Box -->
+                    <div class="bg-dark-950 p-3 rounded-xl border border-slate-800">
+                        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                            Your Unique ID
+                        </label>
+                        <div class="flex items-center justify-between gap-2">
+                            <span id="my-peer-id" class="font-mono text-sm text-emerald-400 font-bold truncate select-all">
+                                Generating...
+                            </span>
+                            <button id="copy-id-btn" class="px-2.5 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors flex items-center gap-1 shrink-0" title="Copy ID">
+                                <i class="fa-regular fa-copy"></i>
+                                <span>Copy</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Connect to Remote Peer Box -->
+                    <div class="bg-dark-950 p-3 rounded-xl border border-slate-800">
+                        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                            Connect To Remote Peer
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" id="remote-peer-id-input" placeholder="Paste Remote ID here..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1 text-sm font-mono text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors">
+                            <button id="call-peer-btn" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm rounded-lg transition-colors shrink-0 flex items-center gap-1.5 shadow-lg shadow-emerald-900/30">
+                                <i class="fa-solid fa-phone"></i>
+                                <span>Call</span>
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="relative bg-dark-900 border border-slate-800 rounded-2xl overflow-hidden aspect-video md:aspect-[16/9] flex items-center justify-center shadow-2xl group">
+                
+                <!-- Remote Video Stream (Main Window) -->
+                <video id="remote-video" autoplay playsinline class="w-full h-full object-cover hidden"></video>
+                
+                <!-- Remote Video Placeholder (When inactive) -->
+                <div id="remote-placeholder" class="flex flex-col items-center justify-center p-6 text-center space-y-3">
+                    <div class="w-20 h-20 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-500 text-3xl">
+                        <i class="fa-solid fa-user-large"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-slate-300 font-semibold text-base" id="call-status-heading">Waiting for Call...</h3>
+                        <p class="text-slate-500 text-xs max-w-xs mt-1">Open this page in a second browser tab/window, copy its ID, and paste it above to establish a live connection.</p>
+                    </div>
+                </div>
+
+                <!-- Local Video Stream (Overlay Box) -->
+                <div class="absolute bottom-4 right-4 w-32 h-24 sm:w-44 sm:h-32 bg-slate-950 border-2 border-slate-700/80 rounded-xl overflow-hidden shadow-2xl z-20 group/local cursor-pointer transition-transform hover:scale-105">
+                    <video id="local-video" autoplay playsinline muted class="w-full h-full object-cover bg-slate-900"></video>
+                    <!-- Local Camera Off Overlay -->
+                    <div id="local-cam-off-icon" class="absolute inset-0 bg-slate-900/90 hidden flex-col items-center justify-center text-slate-500">
+                        <i class="fa-solid fa-video-slash text-xl"></i>
+                        <span class="text-[10px] mt-1">Cam Off</span>
+                    </div>
+                    <span class="absolute bottom-1 left-2 text-[10px] bg-dark-950/80 px-1.5 py-0.5 rounded text-slate-300 backdrop-blur font-medium">You</span>
+                </div>
+
+                <!-- Active Call Floating Badge -->
+                <div id="call-duration-badge" class="absolute top-4 left-4 z-20 hidden items-center gap-2 bg-dark-950/80 backdrop-blur px-3 py-1.5 rounded-full border border-slate-800 text-xs text-slate-200">
+                    <span class="w-2.5 h-2.5 rounded-full bg-red-500 pulse-live"></span>
+                    <span id="timer-display" class="font-mono font-medium">00:00</span>
+                </div>
+
+                <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 md:gap-3 bg-dark-950/90 backdrop-blur border border-slate-800 p-2 rounded-2xl shadow-2xl transition-all duration-300">
+                    <!-- Toggle Mic -->
+                    <button id="toggle-mic-btn" class="w-11 h-11 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition-colors relative group" title="Mute/Unmute Mic">
+                        <i class="fa-solid fa-microphone text-base" id="mic-icon"></i>
+                    </button>
+                    <!-- Toggle Video -->
+                    <button id="toggle-cam-btn" class="w-11 h-11 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition-colors" title="Toggle Camera">
+                        <i class="fa-solid fa-video text-base" id="cam-icon"></i>
+                    </button>
+                    <!-- Screen Share -->
+                    <button id="screen-share-btn" class="w-11 h-11 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition-colors" title="Share Screen">
+                        <i class="fa-solid fa-desktop text-base"></i>
+                    </button>
+                    <!-- End Call -->
+                    <button id="hangup-btn" disabled class="w-11 h-11 rounded-xl bg-red-600/30 text-red-400 opacity-50 cursor-not-allowed flex items-center justify-center transition-all hover:bg-red-600 hover:text-white" title="End Call">
+                        <i class="fa-solid fa-phone-slash text-base"></i>
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- Demo Quick Assistant Box -->
+            <div class="bg-indigo-950/30 border border-indigo-900/40 rounded-xl p-3.5 text-xs text-indigo-200 flex items-start gap-3">
+                <i class="fa-solid fa-lightbulb text-indigo-400 text-base mt-0.5"></i>
+                <div>
+                    <strong class="font-semibold text-indigo-100">How to test right now:</strong>
+                    <ol class="list-decimal list-inside space-y-1 mt-1 text-slate-300">
+                        <li>Allow camera & microphone permissions when prompted.</li>
+                        <li>Click <strong>Copy</strong> to copy your Peer ID.</li>
+                        <li>Open a <strong>new tab or window</strong>, navigate here, paste your ID into "Connect To Remote Peer" and click <strong>Call</strong>.</li>
+                    </ol>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- RIGHT COLUMN: Detailed Implementation Guide & Code Tabs (5 Cols) -->
+        <section class="lg:col-span-5 flex flex-col gap-4">
+            
+            <div class="bg-dark-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex-1 flex flex-col">
+                <h2 class="text-base font-bold text-white mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-code text-emerald-400"></i>
+                    Developer Free Setup Guide
+                </h2>
+
+                <!-- Tabs Navigation -->
+                <div class="flex border-b border-slate-800 text-xs font-medium text-slate-400 mb-4 overflow-x-auto">
+                    <button class="tab-btn px-3 py-2 border-b-2 border-emerald-500 text-emerald-400 font-semibold" data-tab="tab-how">1. Architecture</button>
+                    <button class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-slate-200" data-tab="tab-code">2. Core Code</button>
+                    <button class="tab-btn px-3 py-2 border-b-2 border-transparent hover:text-slate-200" data-tab="tab-tiers">3. Free vs Paid</button>
+                </div>
+
+                <!-- Tab Content 1: How WebRTC & PeerJS Works -->
+                <div id="tab-how" class="tab-content text-xs text-slate-300 space-y-3 leading-relaxed">
+                    <p>WebRTC allows browsers to exchange video, audio, and data directly <strong>Peer-to-Peer (P2P)</strong> without video traffic passing through a server.</p>
+                    
+                    <div class="bg-dark-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                        <h3 class="font-semibold text-emerald-400 text-xs">The 3 Steps of WebRTC:</h3>
+                        <ol class="list-decimal list-inside space-y-1.5 text-slate-400">
+                            <li><strong class="text-slate-200">Signaling:</strong> Browsers trade connection metadata (SDP & ICE candidates). PeerJS handles this free on their cloud server.</li>
+                            <li><strong class="text-slate-200">NAT Traversal (STUN):</strong> Browsers discover their public IP addresses using free Google STUN servers.</li>
+                            <li><strong class="text-slate-200">Direct P2P Stream:</strong> Once connected, audio and video stream directly between the two users with zero bandwidth server cost!</li>
+                        </ol>
+                    </div>
+
+                    <div class="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-xl text-emerald-300">
+                        <i class="fa-solid fa-circle-check mr-1"></i>
+                        <strong>Why is it free?</strong> PeerJS provides free signaling, and Google provides free STUN. You only pay if you need TURN fallback servers for strict firewall bypasses.
+                    </div>
+                </div>
+
+                <!-- Tab Content 2: Copy-Paste JavaScript Snippet -->
+                <div id="tab-code" class="tab-content hidden flex-1 flex flex-col space-y-2">
+                    <p class="text-xs text-slate-400">Simplified minimal script to implement PeerJS in your site:</p>
+                    <div class="relative bg-dark-950 rounded-xl border border-slate-800 p-3 font-mono text-[11px] text-emerald-300 overflow-x-auto flex-1 max-h-80">
+                        <pre><code>// 1. Initialize PeerJS connection
+const peer = new Peer(); 
+
+peer.on('open', (id) => {
+  console.log('My Peer ID:', id);
+});
+
+// 2. Get Media Stream from webcam
+const localStream = await navigator
+  .mediaDevices.getUserMedia({ video: true, audio: true });
+
+// 3. Receive Incoming Calls
+peer.on('call', (call) => {
+  call.answer(localStream); // Answer with camera
+  call.on('stream', (remoteStream) => {
+    remoteVideo.srcObject = remoteStream;
+  });
+});
+
+// 4. Make an Outgoing Call
+function callPeer(remoteId) {
+  const call = peer.call(remoteId, localStream);
+  call.on('stream', (remoteStream) => {
+    remoteVideo.srcObject = remoteStream;
+  });
+}</code></pre>
+                    </div>
+                </div>
+
+                <!-- Tab Content 3: Free Tier Comparison -->
+                <div id="tab-tiers" class="tab-content hidden text-xs text-slate-300 space-y-3">
+                    <div class="space-y-2">
+                        <div class="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                            <h4 class="font-bold text-slate-100 flex items-center justify-between">
+                                Option A: PeerJS (This Demo)
+                                <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] px-2 py-0.5 rounded-full">100% Free</span>
+                            </h4>
+                            <p class="text-slate-400 text-[11px] mt-1">Best for custom 1-on-1 video UI. Free signaling provided by PeerServer community cloud.</p>
+                        </div>
+
+                        <div class="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                            <h4 class="font-bold text-slate-100 flex items-center justify-between">
+                                Option B: Jitsi Meet IFrame Embed
+                                <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] px-2 py-0.5 rounded-full">100% Free</span>
+                            </h4>
+                            <p class="text-slate-400 text-[11px] mt-1">Embed complete group meeting rooms using <code>meet.jit.si</code> iframe script in 2 lines of code.</p>
+                        </div>
+
+                        <div class="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                            <h4 class="font-bold text-slate-100 flex items-center justify-between">
+                                Option C: Paid SDKs (Daily.co, Agora, Twilio)
+                                <span class="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] px-2 py-0.5 rounded-full">Freemium</span>
+                            </h4>
+                            <p class="text-slate-400 text-[11px] mt-1">Provides 10,000 free minutes/month with prebuilt UI and TURN servers for high reliability behind enterprise firewalls.</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </section>
+    </main>
+
+    <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-900 border border-slate-700 text-slate-100 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-sm">
+        <i id="toast-icon" class="fa-solid fa-circle-info text-emerald-400 text-lg"></i>
+        <span id="toast-msg">Notification message</span>
+    </div>
+
+    <script>
+        let peer = null;
+        let localStream = null;
+        let currentCall = null;
+        let isMicMuted = false;
+        let isCamOff = false;
+        let timerInterval = null;
+        let callSeconds = 0;
+
+        // UI Elements
+        const myPeerIdEl = document.getElementById('my-peer-id');
+        const copyIdBtn = document.getElementById('copy-id-btn');
+        const remotePeerIdInput = document.getElementById('remote-peer-id-input');
+        const callPeerBtn = document.getElementById('call-peer-btn');
+        const localVideo = document.getElementById('local-video');
+        const remoteVideo = document.getElementById('remote-video');
+        const remotePlaceholder = document.getElementById('remote-placeholder');
+        const callStatusHeading = document.getElementById('call-status-heading');
+        const globalStatusBadge = document.getElementById('global-status-badge');
+        const toggleMicBtn = document.getElementById('toggle-mic-btn');
+        const toggleCamBtn = document.getElementById('toggle-cam-btn');
+        const screenShareBtn = document.getElementById('screen-share-btn');
+        const hangupBtn = document.getElementById('hangup-btn');
+        const micIcon = document.getElementById('mic-icon');
+        const camIcon = document.getElementById('cam-icon');
+        const localCamOffIcon = document.getElementById('local-cam-off-icon');
+        const callDurationBadge = document.getElementById('call-duration-badge');
+        const timerDisplay = document.getElementById('timer-display');
+
+        window.onload = async function() {
+            await initLocalMedia();
+            initPeerJS();
+            setupTabNavigation();
+        };
+
+        // 1. Initialize Local Camera and Microphone
+        async function initLocalMedia() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: true
+                });
+                localVideo.srcObject = localStream;
+            } catch (err) {
+                console.warn('Camera/Mic permission denied or not available. Using simulated blank stream.', err);
+                showToast('Camera/Mic access not granted. Running in view-only mode.', 'fa-triangle-exclamation');
+                createSimulatedStream();
+            }
+        }
+
+        // Fallback canvas stream if webcam isn't available
+        function createSimulatedStream() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+            
+            setInterval(() => {
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#38bdf8';
+                ctx.font = '20px sans-serif';
+                ctx.fillText('Simulated Stream', 220, 240);
+            }, 1000 / 30);
+
+            localStream = canvas.captureStream(30);
+            localVideo.srcObject = localStream;
+        }
+
+        // 2. Initialize PeerJS Serverless Signaling Connection
+        function initPeerJS() {
+            // Uses free default PeerJS cloud signaling server
+            peer = new Peer({
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                }
+            });
+
+            peer.on('open', (id) => {
+                myPeerIdEl.textContent = id;
+                globalStatusBadge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+                globalStatusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Ready for call`;
+            });
+
+            peer.on('call', (call) => {
+                showToast('Incoming video call connected!', 'fa-phone-volume');
+                handleIncomingCall(call);
+            });
+
+            peer.on('error', (err) => {
+                console.error('PeerJS Error:', err);
+                showToast('Connection error: ' + err.type, 'fa-circle-xmark');
+            });
+        }
+
+        // Handle Outgoing Call
+        callPeerBtn.addEventListener('click', () => {
+            const remoteId = remotePeerIdInput.value.trim();
+            if (!remoteId) {
+                showToast('Please enter a valid Remote Peer ID', 'fa-circle-exclamation');
+                return;
+            }
+
+            if (remoteId === peer.id) {
+                showToast('Cannot call your own Peer ID! Open a second tab.', 'fa-circle-exclamation');
+                return;
+            }
+
+            updateCallStatusUI('connecting');
+            const call = peer.call(remoteId, localStream);
+            setupCallListeners(call);
+        });
+
+        // Handle Incoming Call
+        function handleIncomingCall(call) {
+            updateCallStatusUI('connecting');
+            call.answer(localStream);
+            setupCallListeners(call);
+        }
+
+        // Bind Call Event Listeners
+        function setupCallListeners(call) {
+            currentCall = call;
+
+            call.on('stream', (remoteStream) => {
+                remoteVideo.srcObject = remoteStream;
+                remoteVideo.classList.remove('hidden');
+                remotePlaceholder.classList.add('hidden');
+                updateCallStatusUI('connected');
+                startTimer();
+            });
+
+            call.on('close', () => {
+                endCallUI();
+            });
+
+            call.on('error', (err) => {
+                console.error('Call Error:', err);
+                endCallUI();
+            });
+        }
+
+        // Toggle Audio Mute
+        toggleMicBtn.addEventListener('click', () => {
+            if (!localStream) return;
+            const audioTracks = localStream.getAudioTracks();
+            if (audioTracks.length > 0) {
+                isMicMuted = !isMicMuted;
+                audioTracks[0].enabled = !isMicMuted;
+                
+                if (isMicMuted) {
+                    toggleMicBtn.classList.replace('bg-slate-800', 'bg-red-600');
+                    micIcon.classList.replace('fa-microphone', 'fa-microphone-slash');
+                    showToast('Microphone muted', 'fa-microphone-slash');
+                } else {
+                    toggleMicBtn.classList.replace('bg-red-600', 'bg-slate-800');
+                    micIcon.classList.replace('fa-microphone-slash', 'fa-microphone');
+                    showToast('Microphone unmuted', 'fa-microphone');
+                }
+            }
+        });
+
+        // Toggle Video Camera
+        toggleCamBtn.addEventListener('click', () => {
+            if (!localStream) return;
+            const videoTracks = localStream.getVideoTracks();
+            if (videoTracks.length > 0) {
+                isCamOff = !isCamOff;
+                videoTracks[0].enabled = !isCamOff;
+
+                if (isCamOff) {
+                    toggleCamBtn.classList.replace('bg-slate-800', 'bg-red-600');
+                    camIcon.classList.replace('fa-video', 'fa-video-slash');
+                    localCamOffIcon.classList.remove('hidden');
+                    localCamOffIcon.classList.add('flex');
+                    showToast('Camera turned off', 'fa-video-slash');
+                } else {
+                    toggleCamBtn.classList.replace('bg-red-600', 'bg-slate-800');
+                    camIcon.classList.replace('fa-video-slash', 'fa-video');
+                    localCamOffIcon.classList.remove('flex');
+                    localCamOffIcon.classList.add('hidden');
+                    showToast('Camera turned on', 'fa-video');
+                }
+            }
+        });
+
+        // Screen Share
+        screenShareBtn.addEventListener('click', async () => {
+            try {
+                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                const screenTrack = screenStream.getVideoTracks()[0];
+
+                if (currentCall) {
+                    const sender = currentCall.peerConnection.getSenders().find(s => s.track.kind === 'video');
+                    if (sender) sender.replaceTrack(screenTrack);
+                }
+
+                localVideo.srcObject = screenStream;
+                showToast('Screen sharing started', 'fa-desktop');
+
+                screenTrack.onended = () => {
+                    if (currentCall) {
+                        const sender = currentCall.peerConnection.getSenders().find(s => s.track.kind === 'video');
+                        if (sender) sender.replaceTrack(localStream.getVideoTracks()[0]);
+                    }
+                    localVideo.srcObject = localStream;
+                    showToast('Screen sharing stopped', 'fa-desktop');
+                };
+            } catch (err) {
+                console.warn('Screen share canceled or unsupported.', err);
+            }
+        });
+
+        // Hang Up Call
+        hangupBtn.addEventListener('click', () => {
+            if (currentCall) {
+                currentCall.close();
+            }
+            endCallUI();
+            showToast('Call ended', 'fa-phone-slash');
+        });
+
+        function updateCallStatusUI(state) {
+            if (state === 'connecting') {
+                callStatusHeading.textContent = 'Connecting...';
+                globalStatusBadge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                globalStatusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Connecting...`;
+            } else if (state === 'connected') {
+                callStatusHeading.textContent = 'In Active Call';
+                globalStatusBadge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+                globalStatusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 pulse-live"></span> Connected`;
+                
+                hangupBtn.disabled = false;
+                hangupBtn.classList.remove('opacity-50', 'cursor-not-allowed', 'bg-red-600/30', 'text-red-400');
+                hangupBtn.classList.add('bg-red-600', 'text-white');
+                callDurationBadge.classList.remove('hidden');
+                callDurationBadge.classList.add('flex');
+            }
+        }
+
+        function endCallUI() {
+            if (remoteVideo.srcObject) {
+                remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+                remoteVideo.srcObject = null;
+            }
+            remoteVideo.classList.add('hidden');
+            remotePlaceholder.classList.remove('hidden');
+            callStatusHeading.textContent = 'Waiting for Call...';
+            
+            globalStatusBadge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+            globalStatusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Ready for call`;
+
+            hangupBtn.disabled = true;
+            hangupBtn.classList.add('opacity-50', 'cursor-not-allowed', 'bg-red-600/30', 'text-red-400');
+            hangupBtn.classList.remove('bg-red-600', 'text-white');
+            callDurationBadge.classList.add('hidden');
+            callDurationBadge.classList.remove('flex');
+            
+            stopTimer();
+            currentCall = null;
+        }
+
+        // Timer Functions
+        function startTimer() {
+            stopTimer();
+            callSeconds = 0;
+            timerDisplay.textContent = "00:00";
+            timerInterval = setInterval(() => {
+                callSeconds++;
+                const mins = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+                const secs = String(callSeconds % 60).padStart(2, '0');
+                timerDisplay.textContent = `${mins}:${secs}`;
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+        }
+
+        // Copy ID Button
+        copyIdBtn.addEventListener('click', () => {
+            const textToCopy = myPeerIdEl.textContent.trim();
+            if (textToCopy && textToCopy !== 'Generating...') {
+                const textarea = document.createElement('textarea');
+                textarea.value = textToCopy;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showToast('Peer ID copied to clipboard!', 'fa-check');
+            }
+        });
+
+        // Tab Switching Logic
+        function setupTabNavigation() {
+            const tabs = document.querySelectorAll('.tab-btn');
+            const contents = document.querySelectorAll('.tab-content');
+
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    tabs.forEach(t => {
+                        t.classList.remove('border-emerald-500', 'text-emerald-400', 'font-semibold');
+                        t.classList.add('border-transparent');
+                    });
+                    contents.forEach(c => c.classList.add('hidden'));
+
+                    tab.classList.add('border-emerald-500', 'text-emerald-400', 'font-semibold');
+                    tab.classList.remove('border-transparent');
+                    
+                    const targetId = tab.getAttribute('data-tab');
+                    document.getElementById(targetId).classList.remove('hidden');
+                });
+            });
+        }
+
+        // Toast Notification Helper
+        function showToast(message, iconClass = 'fa-info-circle') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-msg');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastMsg.textContent = message;
+            toastIcon.className = `fa-solid ${iconClass} text-emerald-400 text-lg`;
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
